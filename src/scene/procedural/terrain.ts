@@ -33,6 +33,7 @@ export class Terrain {
   private readonly detail: ValueNoise2D;
   private readonly riverPhase: number;
   private readonly waterMaterial: THREE.MeshStandardMaterial;
+  private readonly waterNormal: THREE.DataTexture;
 
   constructor(options: TerrainOptions) {
     const size = options.size ?? 360;
@@ -50,14 +51,19 @@ export class Terrain {
     this.mesh.receiveShadow = true;
     this.group.add(this.mesh);
 
+    this.waterNormal = makeWaterNormalMap(128);
+    this.waterNormal.repeat.set(size / 14, size / 14);
     this.waterMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2b6f8f,
+      color: 0x1f5572,
       transparent: true,
-      opacity: 0.78,
-      roughness: 0.18,
-      metalness: 0.0,
-      emissive: 0x0a2030,
-      emissiveIntensity: 0.35
+      opacity: 0.86,
+      roughness: 0.07,
+      metalness: 0.15,
+      envMapIntensity: 1.1,
+      normalMap: this.waterNormal,
+      normalScale: new THREE.Vector2(0.4, 0.4),
+      emissive: 0x081a28,
+      emissiveIntensity: 0.25
     });
     this.water = new THREE.Mesh(new THREE.PlaneGeometry(size, size, 1, 1), this.waterMaterial);
     this.water.rotation.x = -Math.PI / 2;
@@ -94,8 +100,9 @@ export class Terrain {
   }
 
   update(time: number): void {
-    // Gentle shimmer on the water without a custom shader.
-    this.waterMaterial.emissiveIntensity = 0.3 + Math.sin(time * 0.8) * 0.08;
+    // Scroll two layers of the ripple normal map for a living surface; gentle bob.
+    this.waterNormal.offset.set(time * 0.018, time * 0.013);
+    this.waterMaterial.emissiveIntensity = 0.22 + Math.sin(time * 0.8) * 0.06;
     this.water.position.y = this.waterLevel + Math.sin(time * 0.6) * 0.03;
   }
 
@@ -104,6 +111,7 @@ export class Terrain {
     (this.mesh.material as THREE.Material).dispose();
     this.water.geometry.dispose();
     this.waterMaterial.dispose();
+    this.waterNormal.dispose();
   }
 
   private applyRiver(x: number, z: number, h: number): number {
@@ -191,4 +199,34 @@ export class Terrain {
       out.lerp(palette.rock, clamp((slope - 0.45) / 0.4, 0, 1));
     }
   }
+}
+
+/** A seamless, tileable ripple normal map for the water surface (no external assets). */
+function makeWaterNormalMap(size: number): THREE.DataTexture {
+  const TAU = Math.PI * 2;
+  const wave = (x: number, y: number): number =>
+    Math.sin((TAU * (3 * x + 2 * y)) / size) * 0.5 +
+    Math.sin((TAU * (2 * x - 4 * y)) / size) * 0.4 +
+    Math.sin((TAU * (5 * x + 1 * y)) / size) * 0.25;
+
+  const data = new Uint8Array(size * size * 4);
+  const m = (n: number) => ((n % size) + size) % size;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = wave(m(x - 1), y) - wave(m(x + 1), y);
+      const ny = wave(x, m(y - 1)) - wave(x, m(y + 1));
+      const nz = 1.0;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      const i = (y * size + x) * 4;
+      data[i] = ((nx / len) * 0.5 + 0.5) * 255;
+      data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+      data[i + 2] = ((nz / len) * 0.5 + 0.5) * 255;
+      data[i + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.needsUpdate = true;
+  return texture;
 }

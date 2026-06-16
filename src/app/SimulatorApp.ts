@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { defaultBlimpConfig, type BlimpConfig } from '../config/blimpConfig';
-import { createBlimpVisual, type BlimpVisual } from '../scene/blimp';
+import { createCraft, type Craft, type CraftId } from '../scene/craft';
 import { createWorld, type SceneId, type World } from '../scene/worlds';
 import { RingCourse } from '../scene/rings';
 import { Beacon, GroundRing, StationBox } from '../scene/markers';
@@ -39,7 +40,8 @@ export class SimulatorApp {
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private readonly sunOffset = new THREE.Vector3();
-  private readonly blimp: BlimpVisual;
+  private craft: Craft;
+  private craftId: CraftId = 'blimp';
   private readonly ui: SimUI;
   private readonly keyboard: KeyboardInput;
   private readonly controllerProfile: ControllerProfile;
@@ -83,11 +85,19 @@ export class SimulatorApp {
     this.root.classList.add('sim-root');
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     this.root.appendChild(this.renderer.domElement);
+
+    // Image-based lighting: a generated studio environment gives every PBR material
+    // realistic reflections and fill, lifting metals, glass and the craft skins.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
 
     this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
@@ -114,8 +124,8 @@ export class SimulatorApp {
     this.scene.add(this.world.group);
     this.applyWorld(this.world);
 
-    this.blimp = createBlimpVisual(this.config);
-    this.scene.add(this.blimp.group);
+    this.craft = createCraft(this.craftId, this.config);
+    this.scene.add(this.craft.group);
 
     this.resetBlimpToSpawn();
     this.startActivity(this.activity);
@@ -259,6 +269,18 @@ export class SimulatorApp {
     this.ui.setAidsActive(this.aidsActive);
   }
 
+  private setCraft(craftId: CraftId): void {
+    if (craftId === this.craftId) {
+      return;
+    }
+    this.craftId = craftId;
+    this.scene.remove(this.craft.group);
+    this.craft.dispose();
+    this.craft = createCraft(craftId, this.config);
+    this.scene.add(this.craft.group);
+    this.craft.update(this.state, this.latestControls, this.elapsedTime, this.config);
+  }
+
   private disposeRingCourse(): void {
     if (this.ringCourse) {
       this.missionGroup.remove(this.ringCourse.group);
@@ -300,7 +322,7 @@ export class SimulatorApp {
 
     const time = this.elapsedTime;
     this.world.update(time);
-    this.blimp.update(this.state, controls, time, this.config);
+    this.craft.update(this.state, controls, time, this.config);
     if (this.ringCourse && view?.ringActiveIndex !== undefined) {
       this.ringCourse.setActiveIndex(view.ringActiveIndex);
     }
@@ -451,6 +473,7 @@ export class SimulatorApp {
         this.cameraRig.snap();
       },
       onSceneChange: (scene: SceneId) => this.setScene(scene),
+      onCraftChange: (craft: CraftId) => this.setCraft(craft),
       onActivityChange: (activity: ActivityId) => this.setActivity(activity),
       onRegenerate: () => this.regenerate(),
       onCourseToggle: () => this.toggleCourse(),

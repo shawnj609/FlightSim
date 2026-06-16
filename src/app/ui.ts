@@ -9,7 +9,9 @@ import {
 import { type MissionView, medalLabel, formatClock } from '../sim/missionTypes';
 import { cameraModeLabels, cameraModes, type CameraMode } from './cameras';
 import { type SceneId, sceneIds, sceneLabels } from '../scene/worlds';
+import { type CraftId, craftIds, craftLabels } from '../scene/craft';
 import { type ActivityId, activityLabels, availableActivities } from './activities';
+import { ObjectiveBannerVisibility } from './objectiveBannerVisibility';
 
 export interface TelemetryView {
   altitude: number;
@@ -37,6 +39,7 @@ export interface SimUICallbacks {
   onCalibrationToggle: () => void;
   onCameraMode: (mode: CameraMode) => void;
   onSceneChange: (scene: SceneId) => void;
+  onCraftChange: (craft: CraftId) => void;
   onActivityChange: (activity: ActivityId) => void;
   onRegenerate: () => void;
   onCourseToggle: () => void;
@@ -58,6 +61,10 @@ export class SimUI {
   private readonly driftArrow: HTMLElement;
 
   // Objective banner
+  private readonly objectiveBanner: HTMLElement;
+  private readonly objectiveRestoreButton: HTMLButtonElement;
+  private readonly objectiveHideButton: HTMLButtonElement;
+  private readonly objectiveBannerVisibility = new ObjectiveBannerVisibility();
   private readonly bannerTitle: HTMLElement;
   private readonly bannerObjective: HTMLElement;
   private readonly bannerHint: HTMLElement;
@@ -112,7 +119,12 @@ export class SimUI {
 
     // Objective banner (stacked directly under the top bar)
     const banner = element('div', 'objective-banner');
+    this.objectiveBanner = banner;
     this.bannerTitle = element('div', 'banner-title', ['Tutorial']);
+    this.objectiveHideButton = button('Hide', () => this.setObjectiveBannerVisible(false));
+    this.objectiveHideButton.className = 'objective-hide-button';
+    this.objectiveHideButton.title = 'Hide objective card';
+    this.objectiveHideButton.setAttribute('aria-label', 'Hide objective card');
     this.bannerObjective = element('div', 'banner-objective', ['']);
     this.bannerHint = element('div', 'banner-hint', ['']);
     const chips = element('div', 'banner-chips');
@@ -120,8 +132,17 @@ export class SimUI {
     this.chipTime = element('span', 'chip', ['0:00']);
     this.chipContacts = element('span', 'chip', ['0 contacts']);
     chips.append(this.chipProgress, this.chipTime, this.chipContacts);
-    banner.append(this.bannerTitle, this.bannerObjective, this.bannerHint, chips);
-    overlayTop.appendChild(banner);
+    banner.append(
+      element('div', 'banner-header', [this.bannerTitle, this.objectiveHideButton]),
+      this.bannerObjective,
+      this.bannerHint,
+      chips
+    );
+    this.objectiveRestoreButton = button('Show objective', () => this.setObjectiveBannerVisible(true));
+    this.objectiveRestoreButton.className = 'objective-restore-button';
+    this.objectiveRestoreButton.title = 'Show objective card';
+    this.objectiveRestoreButton.setAttribute('aria-label', 'Show objective card');
+    overlayTop.append(banner, this.objectiveRestoreButton);
     overlay.appendChild(overlayTop);
 
     const hud = element('div', 'hud');
@@ -192,6 +213,7 @@ export class SimUI {
 
     this.pauseButton = toolbar.pauseButton;
     this.configInputs = this.collectConfigInputs();
+    this.setObjectiveBannerVisible(this.objectiveBannerVisibility.isVisible(), false);
   }
 
   updateTelemetry(view: TelemetryView): void {
@@ -329,6 +351,16 @@ export class SimUI {
     this.calibrationPanel.classList.toggle('is-open', open ?? !this.calibrationPanel.classList.contains('is-open'));
   }
 
+  private setObjectiveBannerVisible(visible: boolean, persist = true): void {
+    if (persist) {
+      this.objectiveBannerVisibility.setVisible(visible);
+    }
+
+    this.objectiveBanner.classList.toggle('is-hidden', !visible);
+    this.objectiveRestoreButton.classList.toggle('is-visible', !visible);
+    this.objectiveRestoreButton.setAttribute('aria-hidden', visible ? 'true' : 'false');
+  }
+
   syncConfig(config: BlimpConfig): void {
     for (const key of Object.keys(configMetadata) as (keyof BlimpConfig)[]) {
       const inputs = this.configInputs[key];
@@ -367,6 +399,10 @@ export class SimUI {
     sceneSelect.title = 'Scene';
     sceneSelect.addEventListener('change', () => callbacks.onSceneChange(sceneSelect.value as SceneId));
 
+    const craftSelect = select(craftIds.map((id) => [id, craftLabels[id]]), 'blimp');
+    craftSelect.title = 'Craft';
+    craftSelect.addEventListener('change', () => callbacks.onCraftChange(craftSelect.value as CraftId));
+
     const activitySelect = select(
       availableActivities('arena').map((id) => [id, activityLabels[id]]),
       'tutorial'
@@ -394,7 +430,7 @@ export class SimUI {
     const settings = button('Settings', () => callbacks.onSettingsToggle());
     const calibration = button('Calibrate', () => callbacks.onCalibrationToggle());
 
-    toolbar.append(sceneSelect, activitySelect, regenerateButton, courseButton, cameraSelect, aidsButton, reset, pause, settings, calibration);
+    toolbar.append(sceneSelect, craftSelect, activitySelect, regenerateButton, courseButton, cameraSelect, aidsButton, reset, pause, settings, calibration);
     return { element: toolbar, sceneSelect, activitySelect, cameraSelect, regenerateButton, courseButton, aidsButton, pauseButton: pause };
   }
 

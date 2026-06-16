@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../../sim/rng';
 import { type Terrain } from './terrain';
 
@@ -102,20 +103,19 @@ export function createScatter(terrain: Terrain, seed: number): Scatter {
     trunkMat.dispose();
   });
 
-  // --- Conifer canopies (cones) ---
+  // --- Conifer canopies (layered fir tiers) ---
   if (conifers.length) {
-    const geo = new THREE.ConeGeometry(1, 2.6, 7);
-    geo.translate(0, 1.3, 0);
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.85, vertexColors: false });
+    const geo = makeConiferGeometry();
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.85 });
     const mesh = new THREE.InstancedMesh(geo, mat, conifers.length);
     mesh.castShadow = true;
     conifers.forEach((p, i) => {
-      dummy.position.set(p.x, p.y + p.scale * 1.5, p.z);
+      dummy.position.set(p.x, p.y + p.scale * 0.3, p.z);
       dummy.rotation.set(0, p.yaw, 0);
-      dummy.scale.set(p.scale * 1.5, p.scale * 1.9, p.scale * 1.5);
+      dummy.scale.set(p.scale * 1.15, p.scale * 1.3, p.scale * 1.15);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-      tint.setHSL(0.32, 0.5, 0.22 + (i % 5) * 0.02);
+      tint.setHSL(0.31, 0.52, 0.2 + (i % 6) * 0.018);
       mesh.setColorAt(i, tint);
     });
     mesh.instanceMatrix.needsUpdate = true;
@@ -130,20 +130,19 @@ export function createScatter(terrain: Terrain, seed: number): Scatter {
     });
   }
 
-  // --- Broadleaf canopies (rounded) ---
+  // --- Broadleaf canopies (multi-lobe crown) ---
   if (broadleaf.length) {
-    const geo = new THREE.IcosahedronGeometry(1.2, 1);
-    geo.translate(0, 1.2, 0);
+    const geo = makeBroadleafGeometry();
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.82 });
     const mesh = new THREE.InstancedMesh(geo, mat, broadleaf.length);
     mesh.castShadow = true;
     broadleaf.forEach((p, i) => {
-      dummy.position.set(p.x, p.y + p.scale * 1.3, p.z);
+      dummy.position.set(p.x, p.y + p.scale * 0.5, p.z);
       dummy.rotation.set(0, p.yaw, 0);
-      dummy.scale.setScalar(p.scale * 1.45);
+      dummy.scale.setScalar(p.scale * 1.1);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-      tint.setHSL(0.28, 0.45, 0.3 + (i % 4) * 0.03);
+      tint.setHSL(0.27, 0.46, 0.28 + (i % 5) * 0.025);
       mesh.setColorAt(i, tint);
     });
     mesh.instanceMatrix.needsUpdate = true;
@@ -158,21 +157,28 @@ export function createScatter(terrain: Terrain, seed: number): Scatter {
     });
   }
 
-  // --- Rocks ---
+  // --- Rocks (irregular, faceted, varied greys) ---
   if (rocks.length) {
-    const geo = new THREE.DodecahedronGeometry(0.7, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x6e6960, roughness: 0.95, flatShading: true });
+    const geo = new THREE.IcosahedronGeometry(0.7, 1);
+    jitterGeometry(geo, rng, 0.18);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0.04, flatShading: true });
     const mesh = new THREE.InstancedMesh(geo, mat, rocks.length);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     rocks.forEach((p, i) => {
-      dummy.position.set(p.x, p.y + p.scale * 0.25, p.z);
+      dummy.position.set(p.x, p.y + p.scale * 0.2, p.z);
       dummy.rotation.set(rng.range(0, 0.6), p.yaw, rng.range(0, 0.6));
-      dummy.scale.set(p.scale, p.scale * rng.range(0.6, 1), p.scale);
+      dummy.scale.set(p.scale, p.scale * rng.range(0.55, 0.95), p.scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
+      const g = 0.36 + (i % 5) * 0.03;
+      tint.setRGB(g, g * 0.97, g * 0.9);
+      mesh.setColorAt(i, tint);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
+    }
     group.add(mesh);
     disposers.push(() => {
       mesh.dispose();
@@ -220,6 +226,51 @@ export function createScatter(terrain: Terrain, seed: number): Scatter {
       }
     }
   };
+}
+
+/** A layered fir: three stacked cones merged into one geometry, base at y=0. */
+function makeConiferGeometry(): THREE.BufferGeometry {
+  const tiers = [
+    new THREE.ConeGeometry(1.0, 1.5, 8),
+    new THREE.ConeGeometry(0.78, 1.3, 8),
+    new THREE.ConeGeometry(0.52, 1.1, 8)
+  ];
+  tiers[0].translate(0, 0.75, 0);
+  tiers[1].translate(0, 1.55, 0);
+  tiers[2].translate(0, 2.25, 0);
+  const merged = mergeGeometries(tiers, false)!;
+  tiers.forEach((t) => t.dispose());
+  return merged;
+}
+
+/** A full broadleaf crown: three offset low-poly lobes merged, base near y=0. */
+function makeBroadleafGeometry(): THREE.BufferGeometry {
+  const lobes = [
+    new THREE.IcosahedronGeometry(1.2, 1),
+    new THREE.IcosahedronGeometry(0.85, 1),
+    new THREE.IcosahedronGeometry(0.8, 1)
+  ];
+  lobes[0].translate(0, 1.4, 0);
+  lobes[1].translate(0.7, 1.7, 0.25);
+  lobes[2].translate(-0.6, 1.6, -0.3);
+  const merged = mergeGeometries(lobes, false)!;
+  lobes.forEach((l) => l.dispose());
+  return merged;
+}
+
+/** Pushes vertices along random offsets so a primitive reads as a rough natural rock. */
+function jitterGeometry(geo: THREE.BufferGeometry, rng: Rng, amount: number): void {
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i += 1) {
+    pos.setXYZ(
+      i,
+      pos.getX(i) + rng.range(-amount, amount),
+      pos.getY(i) + rng.range(-amount, amount),
+      pos.getZ(i) + rng.range(-amount, amount)
+    );
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
 }
 
 function makeTuftGeometry(): THREE.BufferGeometry {

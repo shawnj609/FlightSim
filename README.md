@@ -44,6 +44,17 @@ Different firmware/browser combinations can expose axes in a different order, so
 - `R`: reset
 - `Esc`: pause/settings
 
+## Craft
+
+Pick a craft from the toolbar. Both fly the **identical** flight model — only the look
+changes:
+
+- **Blimp**: the RC stage envelope with a windowed gondola, cruciform tail, and four
+  ducted thrusters.
+- **LAPD helicopter**: a police-liveried helicopter shell matching the show aircraft —
+  navy/white fuselage, glass canopy, landing skids, tail boom + rotor, and the four
+  ducted props (nose, top, both sides) standing in for the lift props.
+
 ## Scenes
 
 Pick a scene from the toolbar. The flight model is identical in every scene; only the

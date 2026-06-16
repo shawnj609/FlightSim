@@ -78,49 +78,91 @@ export function createCity(seed: number): City {
     }
   }
 
-  // --- Buildings (instanced box with a shared window facade) ---
-  const facadeTex = makeFacadeTexture();
-  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  const facadeMat = new THREE.MeshStandardMaterial({
-    map: facadeTex,
-    emissiveMap: facadeTex,
-    emissive: 0xfff2c0,
-    emissiveIntensity: 0.22,
-    roughness: 0.74,
-    metalness: 0.08
-  });
-  const mesh = new THREE.InstancedMesh(boxGeo, facadeMat, buildings.length || 1);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  buildings.forEach((b, i) => {
-    dummy.position.set(b.x, b.h / 2, b.z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(b.w, b.h, b.d);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    const base = 0.55 + b.shade * 0.35;
-    tint.setRGB(base, base * 0.98, base * 0.92).offsetHSL(b.shade * 0.1 - 0.03, 0, 0);
-    mesh.setColorAt(i, tint);
-    colliders.push({
-      id: `building-${i}`,
-      center: new THREE.Vector3(b.x, b.h / 2, b.z),
-      halfSize: new THREE.Vector3(b.w / 2, b.h / 2, b.d / 2),
-      restitution: 0.12
+  // --- Buildings: split into low blocks and glass towers so window density
+  //     stays believable instead of stretching on the tall ones. ---
+  const rooftops: { x: number; z: number; top: number; w: number; d: number }[] = [];
+  const addBuildings = (list: Building[], repeatY: number, glassy: boolean, idOffset: number): void => {
+    if (!list.length) {
+      return;
+    }
+    const tex = makeFacadeTexture(glassy);
+    tex.repeat.set(2, repeatY);
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const facadeMat = new THREE.MeshStandardMaterial({
+      map: tex,
+      emissiveMap: tex,
+      emissive: 0xfff2c0,
+      emissiveIntensity: glassy ? 0.32 : 0.2,
+      roughness: glassy ? 0.32 : 0.72,
+      metalness: glassy ? 0.55 : 0.12,
+      envMapIntensity: glassy ? 1.1 : 0.5
     });
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) {
-    mesh.instanceColor.needsUpdate = true;
-  }
-  if (buildings.length) {
+    const mesh = new THREE.InstancedMesh(boxGeo, facadeMat, list.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    list.forEach((b, i) => {
+      dummy.position.set(b.x, b.h / 2, b.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(b.w, b.h, b.d);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      const base = glassy ? 0.5 + b.shade * 0.3 : 0.55 + b.shade * 0.35;
+      if (glassy) {
+        tint.setRGB(base * 0.8, base * 0.9, base).offsetHSL(b.shade * 0.05, 0, 0);
+      } else {
+        tint.setRGB(base, base * 0.98, base * 0.92).offsetHSL(b.shade * 0.1 - 0.03, 0, 0);
+      }
+      mesh.setColorAt(i, tint);
+      colliders.push({
+        id: `building-${idOffset + i}`,
+        center: new THREE.Vector3(b.x, b.h / 2, b.z),
+        halfSize: new THREE.Vector3(b.w / 2, b.h / 2, b.d / 2),
+        restitution: 0.12
+      });
+      rooftops.push({ x: b.x, z: b.z, top: b.h, w: b.w, d: b.d });
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
+    }
     group.add(mesh);
+    disposers.push(() => {
+      mesh.dispose();
+      boxGeo.dispose();
+      facadeMat.dispose();
+      tex.dispose();
+    });
+  };
+
+  const lowBlocks = buildings.filter((b) => b.h <= 40);
+  const towers = buildings.filter((b) => b.h > 40);
+  addBuildings(lowBlocks, 3, false, 0);
+  addBuildings(towers, 7, true, lowBlocks.length);
+
+  // --- Rooftop units (AC boxes / vents) for silhouette interest ---
+  if (rooftops.length) {
+    const roofGeo = new THREE.BoxGeometry(1, 1, 1);
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x6b7178, roughness: 0.6, metalness: 0.4 });
+    const units = new THREE.InstancedMesh(roofGeo, roofMat, rooftops.length);
+    units.castShadow = true;
+    rooftops.forEach((r, i) => {
+      const uw = Math.min(r.w * 0.4, 4) * rng.range(0.5, 1);
+      const ud = Math.min(r.d * 0.4, 4) * rng.range(0.5, 1);
+      const uh = rng.range(0.8, 2.4);
+      dummy.position.set(r.x + rng.range(-r.w * 0.2, r.w * 0.2), r.top + uh / 2, r.z + rng.range(-r.d * 0.2, r.d * 0.2));
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(uw, uh, ud);
+      dummy.updateMatrix();
+      units.setMatrixAt(i, dummy.matrix);
+    });
+    units.instanceMatrix.needsUpdate = true;
+    group.add(units);
+    disposers.push(() => {
+      units.dispose();
+      roofGeo.dispose();
+      roofMat.dispose();
+    });
   }
-  disposers.push(() => {
-    mesh.dispose();
-    boxGeo.dispose();
-    facadeMat.dispose();
-    facadeTex.dispose();
-  });
 
   // --- Parks (green pads with a few trees) ---
   if (parks.length) {
@@ -162,12 +204,14 @@ export function createCity(seed: number): City {
   const canal = new THREE.Mesh(
     new THREE.PlaneGeometry(span + pitch, 16),
     new THREE.MeshStandardMaterial({
-      color: 0x2b6f8f,
+      color: 0x1f5572,
       transparent: true,
-      opacity: 0.8,
-      roughness: 0.2,
-      emissive: 0x0a2030,
-      emissiveIntensity: 0.3
+      opacity: 0.84,
+      roughness: 0.08,
+      metalness: 0.2,
+      envMapIntensity: 1.1,
+      emissive: 0x081a28,
+      emissiveIntensity: 0.25
     })
   );
   canal.rotation.x = -Math.PI / 2;
@@ -234,24 +278,56 @@ function makeRoadTexture(grid: number): THREE.CanvasTexture {
   return tex;
 }
 
-function makeFacadeTexture(): THREE.CanvasTexture {
+function makeFacadeTexture(glassy: boolean): THREE.CanvasTexture {
+  const w = 128;
+  const h = 256;
   const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 128;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#9aa1ab';
-  ctx.fillRect(0, 0, 64, 128);
-  for (let y = 6; y < 128; y += 12) {
-    for (let x = 6; x < 64; x += 12) {
-      const lit = Math.random() > 0.55;
-      ctx.fillStyle = lit ? '#fff6d6' : '#3a4452';
-      ctx.fillRect(x, y, 7, 7);
+
+  // Base wall with a subtle vertical gradient.
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  if (glassy) {
+    grad.addColorStop(0, '#26323f');
+    grad.addColorStop(1, '#3c4d5e');
+  } else {
+    grad.addColorStop(0, '#8b929c');
+    grad.addColorStop(1, '#a7aeb8');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Window grid with mullions and spandrel bands between floors.
+  const cols = glassy ? 6 : 5;
+  const rows = 12;
+  const margin = glassy ? 3 : 5;
+  const cw = w / cols;
+  const ch = h / rows;
+  for (let r = 0; r < rows; r += 1) {
+    // Spandrel band (darker structural strip under each row of glass).
+    ctx.fillStyle = glassy ? '#1c2630' : '#7c838d';
+    ctx.fillRect(0, r * ch, w, margin);
+    for (let c = 0; c < cols; c += 1) {
+      const lit = Math.random() > (glassy ? 0.68 : 0.6);
+      if (glassy) {
+        ctx.fillStyle = lit ? '#fdf3cf' : `hsl(205, 45%, ${18 + Math.random() * 14}%)`;
+      } else {
+        ctx.fillStyle = lit ? '#fff6d6' : '#39434f';
+      }
+      ctx.fillRect(c * cw + margin, r * ch + margin, cw - margin * 2, ch - margin * 2);
     }
   }
+
+  // Parapet / cornice at the very top.
+  ctx.fillStyle = glassy ? '#161e26' : '#6a717b';
+  ctx.fillRect(0, 0, w, glassy ? 6 : 9);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
   tex.repeat.set(2, 4);
   return tex;
 }

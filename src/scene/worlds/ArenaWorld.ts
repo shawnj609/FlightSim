@@ -91,7 +91,7 @@ export class ArenaWorld implements World {
   private build(): void {
     const floor = this.addMesh(
       new THREE.PlaneGeometry(ARENA_WIDTH, ARENA_DEPTH),
-      new THREE.MeshStandardMaterial({ color: 0x1d2328, roughness: 0.72, metalness: 0.04 })
+      new THREE.MeshStandardMaterial({ color: 0x161b20, roughness: 0.42, metalness: 0.25, envMapIntensity: 0.6 })
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
@@ -169,7 +169,7 @@ export class ArenaWorld implements World {
   private addStage(): void {
     const stage = this.addMesh(
       new THREE.BoxGeometry(17, 0.68, 6.4),
-      new THREE.MeshStandardMaterial({ color: 0x2a2a2d, roughness: 0.6, metalness: 0.12 })
+      new THREE.MeshStandardMaterial({ color: 0x222227, roughness: 0.32, metalness: 0.3, envMapIntensity: 0.8 })
     );
     stage.position.set(0, 0.34, -28);
     stage.castShadow = true;
@@ -214,7 +214,7 @@ export class ArenaWorld implements World {
 
   private addCeilingTruss(): void {
     const y = this.maxArenaHeight - 0.35;
-    const material = new THREE.MeshStandardMaterial({ color: 0x6f7880, roughness: 0.38, metalness: 0.62 });
+    const material = new THREE.MeshStandardMaterial({ color: 0x7c858d, roughness: 0.28, metalness: 0.85, envMapIntensity: 1.1 });
     this.disposers.push(() => material.dispose());
 
     const beamZGeo = new THREE.BoxGeometry(50, 0.18, 0.18);
@@ -273,7 +273,7 @@ export class ArenaWorld implements World {
   }
 
   private addCrowdBarrier(): void {
-    const material = new THREE.MeshStandardMaterial({ color: 0xb9c0c5, roughness: 0.32, metalness: 0.55 });
+    const material = new THREE.MeshStandardMaterial({ color: 0xc4ccd2, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 });
     this.disposers.push(() => material.dispose());
     const segments = [
       { center: new THREE.Vector3(-8.5, 0.7, -22), half: new THREE.Vector3(4.2, 0.35, 0.08) },
