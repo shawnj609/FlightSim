@@ -14,9 +14,21 @@ export interface CollisionResult {
   hitIds: string[];
 }
 
-export function resolveArenaCollisions(
+/**
+ * Describes the world surface the blimp can rest on or bump into. Lets the same
+ * collision routine handle a flat arena floor or rolling terrain with water.
+ */
+export interface SurfaceSampler {
+  groundHeightAt(x: number, z: number): number;
+  ceilingAt(x: number, z: number): number;
+  isWaterAt(x: number, z: number): boolean;
+}
+
+/** Collisions against an arbitrary surface plus a set of AABB obstacles. */
+export function resolveSurfaceCollisions(
   state: BlimpState,
   config: BlimpConfig,
+  surface: SurfaceSampler,
   colliders: readonly AabbCollider[],
   radius = Math.max(config.hullWidth, config.hullHeight) / 2
 ): CollisionResult {
@@ -24,13 +36,15 @@ export function resolveArenaCollisions(
   const restitution = 0.28;
   const verticalExtent = getVerticalExtent(state, config, radius);
 
-  if (state.position.y < verticalExtent) {
-    state.position.y = verticalExtent;
+  const ground = surface.groundHeightAt(state.position.x, state.position.z);
+  const floorY = ground + verticalExtent;
+  if (state.position.y < floorY) {
+    state.position.y = floorY;
     state.velocity.y = Math.abs(state.velocity.y) * restitution;
-    hitIds.push('floor');
+    hitIds.push(surface.isWaterAt(state.position.x, state.position.z) ? 'water' : 'floor');
   }
 
-  const ceiling = config.maxArenaHeight - verticalExtent;
+  const ceiling = surface.ceilingAt(state.position.x, state.position.z) - verticalExtent;
   if (state.position.y > ceiling) {
     state.position.y = ceiling;
     state.velocity.y = -Math.abs(state.velocity.y) * restitution;
@@ -50,6 +64,26 @@ export function resolveArenaCollisions(
     faults: hitIds.length,
     hitIds
   };
+}
+
+/** Flat-floored arena collisions (ground at y=0, ceiling at maxArenaHeight). */
+export function resolveArenaCollisions(
+  state: BlimpState,
+  config: BlimpConfig,
+  colliders: readonly AabbCollider[],
+  radius = Math.max(config.hullWidth, config.hullHeight) / 2
+): CollisionResult {
+  return resolveSurfaceCollisions(
+    state,
+    config,
+    {
+      groundHeightAt: () => 0,
+      ceilingAt: () => config.maxArenaHeight,
+      isWaterAt: () => false
+    },
+    colliders,
+    radius
+  );
 }
 
 function getHullSamplePoints(state: BlimpState, config: BlimpConfig, radius: number): Vector3[] {

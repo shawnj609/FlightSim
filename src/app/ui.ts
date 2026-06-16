@@ -6,8 +6,10 @@ import {
   type ControlAxis,
   type ControllerProfile
 } from '../sim/input';
-import { type TrainingMode, trainingModes, type TrainingSnapshot } from '../sim/training';
+import { type MissionView, medalLabel, formatClock } from '../sim/missionTypes';
 import { cameraModeLabels, cameraModes, type CameraMode } from './cameras';
+import { type SceneId, sceneIds, sceneLabels } from '../scene/worlds';
+import { type ActivityId, activityLabels, availableActivities } from './activities';
 
 export interface TelemetryView {
   altitude: number;
@@ -34,7 +36,11 @@ export interface SimUICallbacks {
   onSettingsToggle: () => void;
   onCalibrationToggle: () => void;
   onCameraMode: (mode: CameraMode) => void;
-  onTrainingMode: (mode: TrainingMode) => void;
+  onSceneChange: (scene: SceneId) => void;
+  onActivityChange: (activity: ActivityId) => void;
+  onRegenerate: () => void;
+  onCourseToggle: () => void;
+  onAidsToggle: () => void;
   onConfigChange: (key: keyof BlimpConfig, value: number) => void;
   onAxisMappingChange: (axis: ControlAxis, sourceAxis: number, inverted: boolean) => void;
   onCalibrateCenter: () => void;
@@ -46,14 +52,36 @@ export class SimUI {
   private readonly telemetry = new Map<string, HTMLElement>();
   private readonly axisBars = new Map<ControlAxis, HTMLElement>();
   private readonly rawAxisBars: HTMLElement[] = [];
-  private readonly scoreValue: HTMLElement;
-  private readonly objectiveValue: HTMLElement;
-  private readonly faultValue: HTMLElement;
-  private readonly timeValue: HTMLElement;
   private readonly statusValue: HTMLElement;
   private readonly gamepadValue: HTMLElement;
   private readonly motorsOff: HTMLElement;
   private readonly driftArrow: HTMLElement;
+
+  // Objective banner
+  private readonly bannerTitle: HTMLElement;
+  private readonly bannerObjective: HTMLElement;
+  private readonly bannerHint: HTMLElement;
+  private readonly chipProgress: HTMLElement;
+  private readonly chipTime: HTMLElement;
+  private readonly chipContacts: HTMLElement;
+
+  // Result card
+  private readonly resultCard: HTMLElement;
+  private readonly resultMedal: HTMLElement;
+  private readonly resultTitle: HTMLElement;
+  private readonly resultLines: HTMLElement;
+  private readonly resultMessage: HTMLElement;
+  private resultKey = '';
+  private resultDismissed = false;
+
+  // Toolbar controls
+  private readonly sceneSelect: HTMLSelectElement;
+  private readonly activitySelect: HTMLSelectElement;
+  private readonly cameraSelect: HTMLSelectElement;
+  private readonly regenerateButton: HTMLButtonElement;
+  private readonly courseButton: HTMLButtonElement;
+  private readonly aidsButton: HTMLButtonElement;
+
   private readonly settingsPanel: HTMLElement;
   private readonly calibrationPanel: HTMLElement;
   private readonly pauseButton: HTMLButtonElement;
@@ -64,15 +92,37 @@ export class SimUI {
     const overlay = element('div', 'overlay');
     root.appendChild(overlay);
 
+    const overlayTop = element('div', 'overlay-top');
     const topBar = element('div', 'top-bar');
+    const toolbar = this.createToolbar(callbacks);
+    this.sceneSelect = toolbar.sceneSelect;
+    this.activitySelect = toolbar.activitySelect;
+    this.cameraSelect = toolbar.cameraSelect;
+    this.regenerateButton = toolbar.regenerateButton;
+    this.courseButton = toolbar.courseButton;
+    this.aidsButton = toolbar.aidsButton;
     topBar.append(
       element('div', 'title-block', [
         element('div', 'app-title', ['RC Stage Blimp Trainer']),
-        element('div', 'app-subtitle', ['pilot floor view'])
+        element('div', 'app-subtitle', ['operator floor trainer'])
       ]),
-      this.createToolbar(callbacks)
+      toolbar.element
     );
-    overlay.appendChild(topBar);
+    overlayTop.appendChild(topBar);
+
+    // Objective banner (stacked directly under the top bar)
+    const banner = element('div', 'objective-banner');
+    this.bannerTitle = element('div', 'banner-title', ['Tutorial']);
+    this.bannerObjective = element('div', 'banner-objective', ['']);
+    this.bannerHint = element('div', 'banner-hint', ['']);
+    const chips = element('div', 'banner-chips');
+    this.chipProgress = element('span', 'chip', ['']);
+    this.chipTime = element('span', 'chip', ['0:00']);
+    this.chipContacts = element('span', 'chip', ['0 contacts']);
+    chips.append(this.chipProgress, this.chipTime, this.chipContacts);
+    banner.append(this.bannerTitle, this.bannerObjective, this.bannerHint, chips);
+    overlayTop.appendChild(banner);
+    overlay.appendChild(overlayTop);
 
     const hud = element('div', 'hud');
     const leftPanel = element('section', 'panel telemetry-panel');
@@ -107,25 +157,40 @@ export class SimUI {
     rightPanel.append(row('Controller', this.statusValue));
     rightPanel.append(row('Gamepad ID', this.gamepadValue));
 
-    const trainingPanel = element('section', 'panel training-panel');
-    trainingPanel.appendChild(element('h2', '', ['Training']));
-    this.scoreValue = element('strong', '', ['1000']);
-    this.objectiveValue = element('span', '', ['Hold the transparent box for 60 seconds']);
-    this.faultValue = element('strong', '', ['0']);
-    this.timeValue = element('strong', '', ['0.0 s']);
-    trainingPanel.append(row('Score', this.scoreValue));
-    trainingPanel.append(row('Objective', this.objectiveValue));
-    trainingPanel.append(row('Faults', this.faultValue));
-    trainingPanel.append(row('Time', this.timeValue));
-
-    hud.append(leftPanel, trainingPanel, rightPanel);
+    hud.append(leftPanel, rightPanel);
     overlay.appendChild(hud);
+
+    // Result card
+    this.resultCard = element('div', 'result-card');
+    this.resultMedal = element('div', 'result-medal', ['']);
+    this.resultTitle = element('div', 'result-title', ['']);
+    this.resultLines = element('div', 'result-lines');
+    this.resultMessage = element('div', 'result-message', ['']);
+    const resultButtons = element('div', 'result-buttons', [
+      button('Retry', () => {
+        this.resultDismissed = false;
+        callbacks.onReset();
+      }),
+      button('Close', () => {
+        this.resultDismissed = true;
+        this.resultCard.classList.remove('is-open');
+      })
+    ]);
+    const resultInner = element('div', 'result-inner', [
+      this.resultMedal,
+      this.resultTitle,
+      this.resultLines,
+      this.resultMessage,
+      resultButtons
+    ]);
+    this.resultCard.appendChild(resultInner);
+    overlay.appendChild(this.resultCard);
 
     this.settingsPanel = this.createSettingsPanel(callbacks, config);
     this.calibrationPanel = this.createCalibrationPanel(callbacks, profile);
     overlay.append(this.settingsPanel, this.calibrationPanel);
 
-    this.pauseButton = topBar.querySelector<HTMLButtonElement>('[data-action="pause"]')!;
+    this.pauseButton = toolbar.pauseButton;
     this.configInputs = this.collectConfigInputs();
   }
 
@@ -156,11 +221,46 @@ export class SimUI {
     }
   }
 
-  updateTraining(snapshot: TrainingSnapshot): void {
-    this.scoreValue.textContent = `${snapshot.score}`;
-    this.objectiveValue.textContent = snapshot.completed ? `${snapshot.label} complete` : snapshot.objective;
-    this.faultValue.textContent = `${Math.floor(snapshot.faults)}`;
-    this.timeValue.textContent = `${snapshot.elapsed.toFixed(1)} s`;
+  updateMission(view: MissionView): void {
+    this.bannerTitle.textContent = view.title;
+    this.bannerObjective.textContent = view.objective;
+    this.bannerHint.textContent = view.hint;
+    this.bannerHint.style.display = view.hint ? '' : 'none';
+
+    setChip(this.chipProgress, view.progress);
+    this.chipTime.textContent = formatClock(view.timerSeconds);
+    setChip(this.chipContacts, view.contacts > 0 ? `${view.contacts} contacts` : '0 contacts');
+    this.chipContacts.classList.toggle('is-warn', view.contacts > 0);
+
+    if (view.result) {
+      const key = `${view.result.title}:${view.result.medal}:${view.timerSeconds.toFixed(0)}`;
+      if (key !== this.resultKey) {
+        this.populateResult(view);
+        this.resultKey = key;
+        this.resultDismissed = false;
+      }
+      if (!this.resultDismissed) {
+        this.resultCard.classList.add('is-open');
+      }
+    } else {
+      this.resultKey = '';
+      this.resultDismissed = false;
+      this.resultCard.classList.remove('is-open');
+    }
+  }
+
+  private populateResult(view: MissionView): void {
+    const result = view.result!;
+    const isMedal = result.medal !== 'none';
+    this.resultMedal.textContent = isMedal ? medalLabel(result.medal) : 'Complete';
+    this.resultMedal.className = `result-medal medal-${result.medal}`;
+    this.resultTitle.textContent = result.title;
+    this.resultLines.replaceChildren(
+      ...result.lines.map((line) =>
+        element('div', 'result-row', [element('span', '', [line.label]), element('strong', '', [line.value])])
+      )
+    );
+    this.resultMessage.textContent = result.message;
   }
 
   updateControllerStatus(status: ControllerStatusView): void {
@@ -183,6 +283,42 @@ export class SimUI {
   setPaused(paused: boolean): void {
     this.pauseButton.textContent = paused ? 'Resume' : 'Pause';
     this.pauseButton.classList.toggle('is-active', paused);
+  }
+
+  /** Sync the toolbar to the active scene/activity and regeneration availability. */
+  syncScene(scene: SceneId, activity: ActivityId, canRegenerate: boolean, courseActive: boolean): void {
+    this.sceneSelect.value = scene;
+    const activities = availableActivities(scene);
+    this.activitySelect.replaceChildren(
+      ...activities.map((id) => {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = activityLabels[id];
+        return option;
+      })
+    );
+    this.activitySelect.value = activity;
+
+    this.regenerateButton.disabled = !canRegenerate;
+    this.regenerateButton.classList.toggle('is-disabled', !canRegenerate);
+
+    const showCourse = activity === 'freeFlight';
+    this.courseButton.style.display = showCourse ? '' : 'none';
+    this.setCourseActive(courseActive);
+  }
+
+  setCourseActive(active: boolean): void {
+    this.courseButton.textContent = active ? 'Ring course: On' : 'Ring course: Off';
+    this.courseButton.classList.toggle('is-active', active);
+  }
+
+  setAidsActive(active: boolean): void {
+    this.aidsButton.textContent = active ? 'Depth aids: On' : 'Depth aids: Off';
+    this.aidsButton.classList.toggle('is-active', active);
+  }
+
+  syncCamera(mode: CameraMode): void {
+    this.cameraSelect.value = mode;
   }
 
   toggleSettings(open?: boolean): void {
@@ -215,12 +351,42 @@ export class SimUI {
     }
   }
 
-  private createToolbar(callbacks: SimUICallbacks): HTMLElement {
+  private createToolbar(callbacks: SimUICallbacks): {
+    element: HTMLElement;
+    sceneSelect: HTMLSelectElement;
+    activitySelect: HTMLSelectElement;
+    cameraSelect: HTMLSelectElement;
+    regenerateButton: HTMLButtonElement;
+    courseButton: HTMLButtonElement;
+    aidsButton: HTMLButtonElement;
+    pauseButton: HTMLButtonElement;
+  } {
     const toolbar = element('div', 'toolbar');
-    const cameraSelect = select(cameraModes.map((mode) => [mode, cameraModeLabels[mode]]), 'pilot');
+
+    const sceneSelect = select(sceneIds.map((id) => [id, sceneLabels[id]]), 'arena');
+    sceneSelect.title = 'Scene';
+    sceneSelect.addEventListener('change', () => callbacks.onSceneChange(sceneSelect.value as SceneId));
+
+    const activitySelect = select(
+      availableActivities('arena').map((id) => [id, activityLabels[id]]),
+      'tutorial'
+    );
+    activitySelect.title = 'Activity';
+    activitySelect.addEventListener('change', () => callbacks.onActivityChange(activitySelect.value as ActivityId));
+
+    const regenerateButton = button('Regenerate', () => callbacks.onRegenerate());
+    regenerateButton.disabled = true;
+    regenerateButton.classList.add('is-disabled');
+
+    const courseButton = button('Ring course: Off', () => callbacks.onCourseToggle());
+    courseButton.style.display = 'none';
+
+    const cameraSelect = select(cameraModes.map((mode) => [mode, cameraModeLabels[mode]]), 'follow');
+    cameraSelect.title = 'Camera';
     cameraSelect.addEventListener('change', () => callbacks.onCameraMode(cameraSelect.value as CameraMode));
-    const trainingSelect = select(trainingModes.map((mode) => [mode, labelTrainingMode(mode)]), 'hoverBox');
-    trainingSelect.addEventListener('change', () => callbacks.onTrainingMode(trainingSelect.value as TrainingMode));
+
+    const aidsButton = button('Depth aids: On', () => callbacks.onAidsToggle());
+    aidsButton.classList.add('is-active');
 
     const reset = button('Reset', () => callbacks.onReset());
     const pause = button('Pause', () => callbacks.onPauseToggle());
@@ -228,8 +394,8 @@ export class SimUI {
     const settings = button('Settings', () => callbacks.onSettingsToggle());
     const calibration = button('Calibrate', () => callbacks.onCalibrationToggle());
 
-    toolbar.append(cameraSelect, trainingSelect, reset, pause, settings, calibration);
-    return toolbar;
+    toolbar.append(sceneSelect, activitySelect, regenerateButton, courseButton, cameraSelect, aidsButton, reset, pause, settings, calibration);
+    return { element: toolbar, sceneSelect, activitySelect, cameraSelect, regenerateButton, courseButton, aidsButton, pauseButton: pause };
   }
 
   private createSettingsPanel(callbacks: SimUICallbacks, config: BlimpConfig): HTMLElement {
@@ -264,11 +430,7 @@ export class SimUI {
       range.addEventListener('input', onInput);
       number.addEventListener('input', onInput);
 
-      panel.appendChild(element('label', 'config-row', [
-        element('span', '', [meta.label]),
-        range,
-        number
-      ]));
+      panel.appendChild(element('label', 'config-row', [element('span', '', [meta.label]), range, number]));
     }
 
     return panel;
@@ -323,6 +485,11 @@ export class SimUI {
   }
 }
 
+function setChip(chip: HTMLElement, text: string): void {
+  chip.textContent = text;
+  chip.style.display = text ? '' : 'none';
+}
+
 function axisBar(label: string, fill: HTMLElement): HTMLElement {
   const track = element('div', 'axis-track', [fill, element('div', 'axis-center')]);
   return element('div', 'axis-row', [element('span', '', [label]), track]);
@@ -350,17 +517,6 @@ function select(options: [string, string][], value: string): HTMLSelectElement {
   }
   control.value = value;
   return control;
-}
-
-function labelTrainingMode(mode: TrainingMode): string {
-  const labels: Record<TrainingMode, string> = {
-    hoverBox: 'Hover box',
-    gatePass: 'Gate pass',
-    precisionStop: 'Precision stop',
-    stagePass: 'Stage pass',
-    noseIn: 'Nose-in'
-  };
-  return labels[mode];
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(

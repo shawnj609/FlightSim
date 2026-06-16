@@ -44,13 +44,43 @@ Different firmware/browser combinations can expose axes in a different order, so
 - `R`: reset
 - `Esc`: pause/settings
 
-## Training Modes
+## Scenes
 
-- Hover box: hold inside the transparent box for 60 seconds. Score favors low position error and smooth stick work.
-- Gate pass: fly through floating inflatable rings in order.
-- Precision stop: arrive in the target ring and stop with low velocity.
-- Stage pass: make a slow pass over the stage without hitting truss or cables.
-- Nose-in control: gate work while keeping the nose yawed toward the pilot camera.
+Pick a scene from the toolbar. The flight model is identical in every scene; only the
+environment and default wind change (wind is still tunable in Settings).
+
+- **Indoor arena**: the original rehearsal venue — stage, truss, video wall, barriers,
+  and hanging-cable obstacles.
+- **Nature**: a procedural outdoor world with rolling hills, lakes, a winding river,
+  trees, rocks, and grass. Press **Regenerate** for a fresh map (same seed reproduces
+  the same world). Touching water or terrain counts as a contact.
+- **City**: a procedural street grid of window-lit buildings with parks and a canal.
+  Buildings are solid; **Regenerate** lays out a new city.
+
+## Tutorial
+
+A guided, step-by-step intro that coaches each control in turn (altitude hold, yaw to a
+beacon, ease-and-stop translation, a combined move, then a slow ring pass). Each step
+shows an objective, a coaching hint, and a target marker, and auto-advances once you
+hold the step's condition. Available in every scene.
+
+## Challenges
+
+Each challenge shows a live objective and progress, and ends with a result card rating
+your run **Bronze / Silver / Gold** from explainable thresholds (time, precision,
+contacts). **Retry** restarts the run.
+
+- **Station keeping**: hold the blimp inside the box for 15 seconds.
+- **Ring run**: fly through every ring in order. The next ring glows and shows an arrow;
+  cleared rings turn green. Medal is based on total time vs. par and contacts.
+- **Spot landing**: settle gently inside the landing ring and hold for 2 seconds.
+- **Stage pass** (arena): a slow, level pass over the stage lane to the back.
+- **Nose-in hold** (arena): hold position with the nose pointed at the pilot.
+
+## Free flight
+
+Outdoor and city scenes start in free flight — just explore. Toggle **Ring course** to
+fly a timed, regenerable ring run laid over the world.
 
 ## Tuning
 
